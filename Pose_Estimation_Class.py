@@ -249,7 +249,6 @@ class IEKF(object):
         h[3:]=np.dot(AA[:3,:3],tx)+ta-np.dot(Rx,tb)-tx
         return h
 
-
 class UKF(object): 
     def __init__(self):        
         self.x=np.array([0,1,0,0,0,0],dtype=np.float64)
@@ -298,8 +297,8 @@ class UKF(object):
         #calculate Kalman gain: careful with Sinv   
         K=np.matmul(T,np.linalg.inv(S))
         y=self.z-h_mean
-#        innovation =np.linalg.norm(y) 
-#        if innovation>self.update_thresh:        
+        #       innovation =np.linalg.norm(y) 
+        #       if innovation>self.update_thresh:        
         self.P=self.P_mean-np.linalg.multi_dot([K,S,K.T])
         self.x=self.x_mean+np.dot(K,y)
         #consistency check (NIS, dof 6) xi-squared
@@ -350,97 +349,97 @@ class UKF(object):
         h[3:]=np.dot(AA[:3,:3],tx)+ta-np.dot(Rx,tb)-tx
         return h
               
+if __name__ == "__main__":
+    data_file='pose_sim_data.p'#random 3deg, 3mm noise added to measurements
+    with open(data_file, mode='rb') as f:
+        sim_data = pickle.load(f)
+    A_seq=sim_data['xfm_A']
+    B_seq=sim_data['xfm_B']
+    AA_seq=sim_data['xfm_AA']
+    BB_seq=sim_data['xfm_BB']
+    X=sim_data['X']
+    Y=sim_data['Y']
+
+
+    #Ground Truth
+    print('\n')
+    print('.....Ground Truth')
+    euler_GT=Tools.mat2euler(X[:3,:3])
+    print("GT[euler_rpy(deg) , pos(mm)]:",np.array(euler_GT)*180/np.pi,X[:3,3].T*100)
+
+    #Batch Processing
+    X_est,Y_est,Y_est_check,ErrorStats=Batch_Processing.pose_estimation(A_seq,B_seq)
+    print('\n')
+    print('.....Batch Processing Results')
+    euler_batch=Tools.mat2euler(X_est[:3,:3])
+    batch_euler_err=np.array(euler_batch)*180/np.pi-np.array(euler_GT)*180/np.pi
+    batch_pos_err=X_est[:3,3].T*100-X[:3,3].T*100
+    print("Batch[euler_rpy(deg) , pos(mm)]:",np.array(euler_batch)*180/np.pi,X_est[:3,3].T*100)
+    print("Error[euler_rpy(deg) , pos(mm)]:", batch_euler_err, batch_pos_err)
+
+    #EKF
+    ekf=EKF()
+    for i in range(len(AA_seq[1,1,:])):
+        AA=AA_seq[:,:,i] 
+        BB=BB_seq[:,:,i]
+        ekf.Update(AA,BB)
         
-data_file='pose_sim_data.p'#random 3deg, 3mm noise added to measurements
-with open(data_file, mode='rb') as f:
-    sim_data = pickle.load(f)
-A_seq=sim_data['xfm_A']
-B_seq=sim_data['xfm_B']
-AA_seq=sim_data['xfm_AA']
-BB_seq=sim_data['xfm_BB']
-X=sim_data['X']
-Y=sim_data['Y']
-
-
-#Ground Truth
-print('\n')
-print('.....Ground Truth')
-euler_GT=Tools.mat2euler(X[:3,:3])
-print("GT[euler_rpy(deg) , pos(mm)]:",np.array(euler_GT)*180/np.pi,X[:3,3].T*100)
-
-#Batch Processing
-X_est,Y_est,Y_est_check,ErrorStats=Batch_Processing.pose_estimation(A_seq,B_seq)
-print('\n')
-print('.....Batch Processing Results')
-euler_batch=Tools.mat2euler(X_est[:3,:3])
-batch_euler_err=np.array(euler_batch)*180/np.pi-np.array(euler_GT)*180/np.pi
-batch_pos_err=X_est[:3,3].T*100-X[:3,3].T*100
-print("Batch[euler_rpy(deg) , pos(mm)]:",np.array(euler_batch)*180/np.pi,X_est[:3,3].T*100)
-print("Error[euler_rpy(deg) , pos(mm)]:", batch_euler_err, batch_pos_err)
-
-#EKF
-ekf=EKF()
-for i in range(len(AA_seq[1,1,:])):
-    AA=AA_seq[:,:,i] 
-    BB=BB_seq[:,:,i]
-    ekf.Update(AA,BB)
-    
-theta=np.linalg.norm(ekf.x[:3])
-if theta < EPS:
-   k=[0,1,0] #VRML standard
-else:
-    k=ekf.x[0:3]/np.linalg.norm(ekf.x[:3])
-euler_ekf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
-print('\n')
-print('.....EKF Results')
-ekf_euler_err=np.array(euler_ekf)*180/np.pi-np.array(euler_GT)*180/np.pi
-ekf_pos_err=ekf.x[3:].T*100-X[:3,3].T*100
-print("EKF  [euler_rpy(deg) , pos(mm)]:",np.array(euler_ekf)*180/np.pi,ekf.x[3:]*100)
-print("Error[euler_rpy(deg) , pos(mm)]:", ekf_euler_err, ekf_pos_err)
+    theta=np.linalg.norm(ekf.x[:3])
+    if theta < EPS:
+        k=[0,1,0] #VRML standard
+    else:
+        k=ekf.x[0:3]/np.linalg.norm(ekf.x[:3])
+    euler_ekf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
+    print('\n')
+    print('.....EKF Results')
+    ekf_euler_err=np.array(euler_ekf)*180/np.pi-np.array(euler_GT)*180/np.pi
+    ekf_pos_err=ekf.x[3:].T*100-X[:3,3].T*100
+    print("EKF  [euler_rpy(deg) , pos(mm)]:",np.array(euler_ekf)*180/np.pi,ekf.x[3:]*100)
+    print("Error[euler_rpy(deg) , pos(mm)]:", ekf_euler_err, ekf_pos_err)
 
 
 
-#IEKF
-iekf=IEKF()
-for i in range(len(AA_seq[1,1,:])):
-    AA=AA_seq[:,:,i] 
-    BB=BB_seq[:,:,i]
-    iekf.Update(AA,BB)
-    
-theta=np.linalg.norm(iekf.x[:3])
-if theta < EPS:
-   k=[0,1,0] #VRML standard
-else:
-    k=iekf.x[0:3]/np.linalg.norm(iekf.x[:3])
-euler_iekf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
+    #IEKF
+    iekf=IEKF()
+    for i in range(len(AA_seq[1,1,:])):
+        AA=AA_seq[:,:,i] 
+        BB=BB_seq[:,:,i]
+        iekf.Update(AA,BB)
+        
+    theta=np.linalg.norm(iekf.x[:3])
+    if theta < EPS:
+        k=[0,1,0] #VRML standard
+    else:
+        k=iekf.x[0:3]/np.linalg.norm(iekf.x[:3])
+    euler_iekf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
 
-print('\n')
-print('.....IEKF Results')
+    print('\n')
+    print('.....IEKF Results')
 
-iekf_euler_err=np.array(euler_iekf)*180/np.pi-np.array(euler_GT)*180/np.pi
-iekf_pos_err=iekf.x[3:].T*100-X[:3,3].T*100
-print("IEKF [euler_rpy(deg) , pos(mm)]:",np.array([euler_iekf])*180/np.pi,iekf.x[3:]*100)
-print("Error[euler_rpy(deg) , pos(mm)]:", iekf_euler_err, iekf_pos_err)
+    iekf_euler_err=np.array(euler_iekf)*180/np.pi-np.array(euler_GT)*180/np.pi
+    iekf_pos_err=iekf.x[3:].T*100-X[:3,3].T*100
+    print("IEKF [euler_rpy(deg) , pos(mm)]:",np.array([euler_iekf])*180/np.pi,iekf.x[3:]*100)
+    print("Error[euler_rpy(deg) , pos(mm)]:", iekf_euler_err, iekf_pos_err)
 
-#UKF
-ukf=UKF()
-for i in range(len(AA_seq[1,1,:])):
-    AA=AA_seq[:,:,i] 
-    BB=BB_seq[:,:,i]
-    ukf.Update(AA,BB)
-    
-theta=np.linalg.norm(ukf.x[:3])
-if theta < EPS:
-   k=[0,1,0] #VRML standard
-else:
-    k=ukf.x[0:3]/np.linalg.norm(ukf.x[:3])
-euler_ukf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
-print('\n')
-print('.....UKF Results')
+    #UKF
+    ukf=UKF()
+    for i in range(len(AA_seq[1,1,:])):
+        AA=AA_seq[:,:,i] 
+        BB=BB_seq[:,:,i]
+        ukf.Update(AA,BB)
+        
+    theta=np.linalg.norm(ukf.x[:3])
+    if theta < EPS:
+        k=[0,1,0] #VRML standard
+    else:
+        k=ukf.x[0:3]/np.linalg.norm(ukf.x[:3])
+    euler_ukf=Tools.mat2euler(Tools.vec2rotmat(theta, k))
+    print('\n')
+    print('.....UKF Results')
 
-ukf_euler_err=np.array(euler_ukf)*180/np.pi-np.array(euler_GT)*180/np.pi
-ukf_pos_err=ukf.x[3:].T*100-X[:3,3].T*100
-print("UKF [euler_rpy(deg) , pos(mm)]:",np.array([euler_ukf])*180/np.pi,ukf.x[3:]*100)
-print("Error[euler_rpy(deg) , pos(mm)]:", ukf_euler_err, ukf_pos_err)
+    ukf_euler_err=np.array(euler_ukf)*180/np.pi-np.array(euler_GT)*180/np.pi
+    ukf_pos_err=ukf.x[3:].T*100-X[:3,3].T*100
+    print("UKF [euler_rpy(deg) , pos(mm)]:",np.array([euler_ukf])*180/np.pi,ukf.x[3:]*100)
+    print("Error[euler_rpy(deg) , pos(mm)]:", ukf_euler_err, ukf_pos_err)
 
 
