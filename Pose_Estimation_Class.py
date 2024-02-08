@@ -20,14 +20,37 @@
 """
 from helpers import Tools
 import pickle
+import os
 import numpy as np
 EPS=0.00001
+
+def result_to_se3(result):
+    T = result.x[3:]
+    rotation = result.x[:3]
+    
+    angle = np.linalg.norm(rotation)
+    if angle < 1e-6:  # Using a small epsilon value for float comparison
+        k = [0, 1, 0]  # Default axis if angle is too small
+    else:
+        k = rotation / angle  # Normalize the axis vector
+
+    # Calculate the rotation matrix using Rodrigues' rotation formula
+    K = np.array([[0, -k[2], k[1]],
+                  [k[2], 0, -k[0]],
+                  [-k[1], k[0], 0]])
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+
+    # Create a 4x4 homogeneous transformation matrix
+    M = np.eye(4)
+    M[:3, :3] = R
+    M[:3, 3] = T
+    return M
 
 class Batch_Processing:        
     def pose_estimation(A,B):
    
-        n=A.shape[2];
-        T = np.zeros([9,9]);
+        n=A.shape[2]
+        T = np.zeros([9,9])
         X_est= np.eye(4)
         Y_est= np.eye(4)
 
@@ -266,7 +289,7 @@ class UKF(object):
         self.update_thresh=0.02 #same as IEKF stop thresh
         self.consistency=[] #should decrease over time for the LSE problem
         
-    def Update(self,AA,BA):
+    def Update(self,AA,BB):
         h=np.zeros((self.nx,self.num_sigma),dtype=np.float64) #measurements
         h_mean=np.zeros(self.nx,dtype=np.float64) #mean measurements
         #process model is constant so no prediction step
@@ -350,7 +373,12 @@ class UKF(object):
         return h
               
 if __name__ == "__main__":
-    data_file='pose_sim_data.p'#random 3deg, 3mm noise added to measurements
+    # Determine the directory of the current file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Construct the path to the data file in the same directory
+    data_file = os.path.join(current_dir, 'pose_sim_data_noisy.p') #random 3deg, 3mm noise added to measurements
+    
     with open(data_file, mode='rb') as f:
         sim_data = pickle.load(f)
     A_seq=sim_data['xfm_A']
@@ -397,7 +425,11 @@ if __name__ == "__main__":
     print("EKF  [euler_rpy(deg) , pos(mm)]:",np.array(euler_ekf)*180/np.pi,ekf.x[3:]*100)
     print("Error[euler_rpy(deg) , pos(mm)]:", ekf_euler_err, ekf_pos_err)
 
-
+    X = result_to_se3(ekf)
+    Y = np.zeros((4, 4, len(AA_seq[1,1,:])))
+    for i in range(len(AA_seq[1,1,:])):
+        Y[:,:,i] = AA_seq[:,:,i] @ X @ np.linalg.inv(BB_seq[:,:,i])
+        #print(Y[:,:,i])
 
     #IEKF
     iekf=IEKF()
